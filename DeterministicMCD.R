@@ -130,12 +130,13 @@ covDetMCD <- function(x, alpha, ...) {
     for (i in 1:p){
       variable = as.matrix(x[,i])
       rep_matrix = matrix(data = apply(variable, 2, function(x) rep(x, n)), ncol = ncol(variable)*n)
-      distance = abs(mrx - t(mrx))
+      distance = abs(rep_matrix - t(rep_matrix))
       distance = distance[upper.tri(distance, diag = FALSE)]
       distance = distance[order(distance)]
       
       Qn[i] = constant*distance[h*(h-1)/2];
     }
+    return(Qn)
   }
   
   
