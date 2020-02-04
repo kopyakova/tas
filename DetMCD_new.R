@@ -64,7 +64,8 @@ covMSS <- function(z) {
   n = dim(z)[1]
   p = dim(z)[2]
   norms = sqrt(rowSums(z^2)) #norms of rows
-  k = as.matrix(z/matrix(rep(norms, p), n, p))
+  index = norms > .Machine$double.eps
+  k = z[index,] / norms[index]
   covariance = 1/n*(t(k)%*%k)
   return(covariance)
 }
@@ -73,7 +74,6 @@ covMSS <- function(z) {
 covBACON1 <- function(z) {
   n = dim(z)[1]
   p = dim(z)[2]
-  
   norms = sqrt(rowSums(z^2)) #norms of rows
   zSorted = z[order(norms),]
   c = ceiling(n/2)
@@ -138,7 +138,8 @@ covDetMCD <- function(x, alpha = 0.5) {
     }
     return(Qn)
   }
-  v_colmed <- colMedians(as.matrix(x))
+  x <- as.matrix(x)
+  v_colmed <- colMedians(x)
   
   qn <- qn_estimator(x)
   m_z <- cbind(
@@ -150,7 +151,7 @@ covDetMCD <- function(x, alpha = 0.5) {
   m_s[[1]] <- corHT(m_z)
   m_s[[2]] <- corSpearman(m_z)
   m_s[[3]] <- corNSR(m_z)
-  m_s[[4]] <- corSpearman(m_z) #is wrong
+  m_s[[4]] <- covMSS(m_z) #is wrong
   m_s[[5]] <- covBACON1(m_z)
   m_s[[6]] <- rawCovOGK(m_z)
   # m_z <- list()
@@ -182,7 +183,7 @@ covDetMCD <- function(x, alpha = 0.5) {
     for( j in 1:n){
       dist[j,i] = sqrt(mahalanobis(x = m_z[j,], cov = m_s2[[i]], center = v_estmu))
     }
-    
+   
     #c-steps
 
     for(k in 1:25){
@@ -218,7 +219,7 @@ covDetMCD <- function(x, alpha = 0.5) {
     }
     
   }
- 
+  detmcd <- list()
    detmcd$center = cbind(mean(x[weight,1]),mean(x[weight,2]))
    v_estmu = detmcd$center
    selected_sample = x[weight,]
@@ -266,7 +267,8 @@ lmDetMCD <- function(x, y, alpha = 0.5, ...) {
   data <- cbind(x, y)
   
   #get MCD estimates
-  MCD = covMcd(data, alpha, nsamp = "deterministic") 
+  #MCD = covMcd(data, alpha, nsamp = "deterministic")
+  MCD = covDetMCD(data, alpha = alpha)
   mu_x = MCD$center[1]
   mu_y = MCD$center[2]
   sigma_yy = MCD$cov[2,2]
