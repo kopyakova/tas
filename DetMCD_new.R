@@ -1,4 +1,5 @@
-require(robustbase)
+library(robustbase)
+library(expm)
 # --------------------------------------------------------------------
 # Author:
 # *Enter your group number here, as well as names and student numbers*
@@ -34,13 +35,14 @@ corHT <- function(z) {
 corSpearman <- function(z) {
   n = dim(z)[1]
   p = dim(z)[2]
-  
+
   #compute ranks of the columns
   ranks = matrix(NA, n, p)
   for (i in 1:p){
     ranks[,i] = rank(z[,i])
   }
   correlation = cor(ranks, method = "pearson")
+  correlation = cor(z, method = "spearman")
   return(correlation)
 }
 
@@ -65,8 +67,9 @@ covMSS <- function(z) {
   p = dim(z)[2]
   norms = sqrt(rowSums(z^2)) #norms of rows
   index = norms > .Machine$double.eps
-  k = z[index,] / norms[index]
-  covariance = 1/n*(t(k)%*%k)
+  k = z
+  k[index,] = z[index,] / norms[index]
+  covariance = t(k) %*% k
   return(covariance)
 }
 
@@ -83,7 +86,7 @@ covBACON1 <- function(z) {
 
 # raw OGK estimator of the covariance matrix with median and Qn
 rawCovOGK <- function(z) {
-  covariance = covOGK(z, sigmamu = s_mad)
+  covariance = covOGK(z, sigmamu = s_Qn)
   return(covariance$cov)
   # *enter your code here*
   # Hint: have a look at function covOGK() in package robustbase
@@ -109,25 +112,20 @@ rawCovOGK <- function(z) {
 # best ......... indices of the observations in the best subset found by the
 #                raw estimator
 # any other output you want to return
-x <- Eredivisie28
-covDetMCD <- function(x, alpha = 0.5) {
-  #mahalo distance function
+
+covDetMCD <- function(x, alpha = 0.5, maxiter = 100, delta = 0.025) {
+  
   n = dim(x)[1]
   p = dim(x)[2]
-  
-  mah_dist_vec <- function(x, m_cov, v_mean){
-    v_mah_dist <- vector()
-    v_mah_dist <- sqrt(as.matrix(x - v_mean) %*% solve(m_cov) %*% t(as.matrix(x-v_mean)))
-    return(v_mah_dist)
-  }
-  
+
+  #Qn scale estimator function
   qn_estimator <- function(x){
     constant = 2.21914
     n = dim(x)[1]
     p = dim(x)[2]
     h = floor(n/2)+1
     Qn = rep(NA, p)
-    for (i in 1:p){
+    for (i in 1:2){
       variable = as.matrix(x[,i])
       rep_matrix = matrix(data = apply(variable, 2, function(x) rep(x, n)), ncol = ncol(variable)*n)
       distance = abs(rep_matrix - t(rep_matrix))
@@ -138,110 +136,123 @@ covDetMCD <- function(x, alpha = 0.5) {
     }
     return(Qn)
   }
-  x <- as.matrix(x)
-  v_colmed <- colMedians(x)
-  
+ 
+  #get medians of the columns
+  v_colmed <-  apply(x, 2L, median)
+  #get scale qn
   qn <- qn_estimator(x)
+  #standardize the data
   m_z <- cbind(
     (x[,1]-v_colmed[1])*(1/qn[1]),
     (x[,2]-v_colmed[2])*(1/qn[2]))
+
   
   #initial estimates
   m_s <- list()
+
   m_s[[1]] <- corHT(m_z)
   m_s[[2]] <- corSpearman(m_z)
   m_s[[3]] <- corNSR(m_z)
-  m_s[[4]] <- covMSS(m_z) #is wrong
+  m_s[[4]] <- covMSS(m_z) 
   m_s[[5]] <- covBACON1(m_z)
-  m_s[[6]] <- rawCovOGK(m_z)
-  # m_z <- list()
-  # m_z[[1]] <- m_z_set
-  # m_z[[2]] <- m_z_set
-  # m_z[[3]] <- m_z_set
-  # m_z[[4]] <- m_z_set
-  # m_z[[5]] <- m_z_set
-  # m_z[[6]] <- m_z_set
-  alpha = 0.5
-  #get initial values
-  
+  m_s[[6]] <- rawCovOGK(m_z) 
+
+  #initialize data structures
   h <- h.alpha.n(alpha,n,p)
-  dist <- matrix(data = 0, ncol = 6, nrow = n)
-  d_ik_index <- matrix(data=0, nrow = h, ncol= 6)
-  detnew <- matrix(data=0, ncol =6, nrow=50)
-  detold <- vector()
+  dist  <- matrix(data = 0, ncol = 6, nrow = n)
+  dist2 <- matrix(data = 0, ncol = 6, nrow = h)
+  
+  detnew <- matrix(data=0, ncol =6, nrow = maxiter)
   estmu2 <- list()
   m_s2 <- list()
   lowdet <- vector()
-  # data = x
-  # x = m_z
+
   for(i in 1:6){
-    m_e = eigen(m_s[[i]])$vectors
+    
+    #estimate initial distance according to Hubert et al. (2012)
+    m_e = eigen(m_s[[i]],  symmetric=TRUE)$vectors
     m_b = m_z %*% m_e
-    m_l = diag(qn_estimator(m_b)^2)# diagonal qn^2 of B
+    m_l = diag(qn_estimator(m_b)^2) #qn^2 doesn't make a differen
     m_s2[[i]] = m_e %*% m_l %*% t(m_e)
-    v_estmu = t(chol2inv(as.matrix(m_s2[[i]])) %*% (colMedians(m_z %*% solve(chol2inv(m_s2[[i]])))))
-    for( j in 1:n){
-      dist[j,i] = sqrt(mahalanobis(x = m_z[j,], cov = m_s2[[i]], center = v_estmu))
-    }
-   
-    #c-steps
-
-    for(k in 1:25){
-      detold[k] <- det(m_s2[[i]])
-      selected_sample <- x[order(dist[,i]),]
-      selected_sample <- selected_sample[1:h,]
-      estmu2[[i]] <- cbind(mean(selected_sample[,1]), mean(selected_sample[,2]))
-      v_estmu <- estmu2[[i]] 
-      #m_s2[[i]] <- (1/(h-1))*(as.matrix(t(selected_sample-cbind(rep(v_estmu[1], h),rep(v_estmu[2], h)))) %*% as.matrix(selected_sample-cbind(rep(v_estmu[1], h),rep(v_estmu[2], h))))
-      m_s2[[i]] <- cov(selected_sample)
+    m_sqrt = sqrtm(m_s2[[i]])
+    temp = m_z %*% solve(m_sqrt)
+    v_estmu = m_sqrt %*% apply(temp, 2L, median)
+    
+    dist[,i] =  sqrt(mahalanobis(x = m_z, cov =  m_s2[[i]], center = v_estmu))
+  
+    #c - steps
+    det_old <- Inf
+     for (k in 1:maxiter){
+       
+      #select sample
+      selected_sample <- x[sort.list(dist[,i])[1:h],]
+      
+      #get new estimates
+      estmu2[[i]] <- apply(selected_sample, 2, mean)
+      v_estmu     <- estmu2[[i]] 
+      m_s2[[i]]   <- cov(selected_sample)
       detnew[k,i] <- det(m_s2[[i]])
-      for( j in 1:n){
-        dist[j,i] = sqrt(mahalanobis(x = x[j,], cov = m_s2[[i]], center = v_estmu))
+      
+      #update distances
+      dist[,i] =  sqrt(mahalanobis(x = x, cov = m_s2[[i]], center = v_estmu))
+      
+      if(detnew[k,i] < det_old){
+        det_old <- det(m_s2[[i]])
       }
-    
-      if(detnew[k,i] == detold[k]){
-        break()
-      }
-    }
-    lowdet[i] <- min(detnew[,i][detnew[,i] != 0]) 
+      else if (detnew[k,i] ==  det_old){
+        break
+      } 
+     }
+    lowdet[i] <- detnew[k,i]
   }
-
+  
+  #find which initial covariance estimators give us a subset with smallest determinant
+  smallest_determinant <- min(lowdet)
+  best_start <- which(lowdet == smallest_determinant)
   low <- order(lowdet)[1]
-  tot = 0
-  weight <- vector()
-  weights2 <- rep(0,n)
+
+  #raw estimates 
+  selected_sample <- x[sort.list(dist[,low])[1:h],]
+  raw.center <- apply(selected_sample, 2, mean)
+  
+  chi_sq <- qchisq (alpha, p)/2
+  correction <- alpha / pgamma(chi_sq, p/2 + 1) #fisher consistency correction factor
+  raw.cov <- cov(selected_sample)*correction
+  
+  
+  #re weighting
+  weights <- rep(0,n)
+  dist <- sqrt(mahalanobis(x = x, cov = raw.cov, center = raw.center))
+  not_outliers <- vector()
+  cut_off <-  sqrt(qchisq(1-delta, df = p))
+
   for(j in 1:n){
-    
-    if(dist[j,low] <= sqrt(qchisq(.975, df = p))){
-      weight <- c(weight, j)
-      tot = tot + 1
-      weights2[j] = 1
+    if(dist[j] < cut_off){
+      not_outliers <- c(not_outliers, j)
+      weights[j] = 1
     }
-    
   }
+  not_outlier_data <- x[weights>0,]
+  
+  #re weighted estimates 
+  center <- apply(not_outlier_data, 2, mean)
+  chi_sq <- qchisq (1-delta, p)/2
+  correction <- (1-delta) / pgamma(chi_sq, p/2 + 1) #fisher consistency correction factor
+  cov <- cov(not_outlier_data)*correction
+
+  #prepare output
   detmcd <- list()
-   detmcd$center = cbind(mean(x[weight,1]),mean(x[weight,2]))
-   v_estmu = detmcd$center
-   selected_sample = x[weight,]
-   
-   detmcd$cov<- (1/(h-1))*as.matrix(t(selected_sample - rep(v_estmu, each=h))) %*% as.matrix(selected_sample - rep(v_estmu, each=h))
-   detmcd$cov<- cov(selected_sample)
-   #detmcd$cov = cov(as.matrix(cbind(x[weight,1],x[weight,2])))
-   detmcd$weights = weights2
-   detmcd$raw.center = estmu2[[low]]
-   detmcd$raw.cov = m_s2[[low]]
-   detmcd$best = low  
+  detmcd$center <- center
+  detmcd$cov <- cov
+  detmcd$weights <- weights
+  detmcd$raw.center <- raw.center
+  detmcd$raw.cov <- raw.cov
+  detmcd$best <- not_outliers
+  detmcd$i_Best <- best_start 
   return(detmcd)
   
   
-  # Please note that the subset sizes for the MCD are not simply fractions of 
-  # the number of observations in the data set, as discussed in the lectures.
-  # You can use function ?h.alpha.n() from package robustbase to compute the 
-  # subset size.
-  
 }
-covMcd(x)
-
 
 ## Function for regression based on the deterministic MCD
 
@@ -262,7 +273,7 @@ covMcd(x)
 #                   function covDetMCD())
 # any other output you want to return
 
-lmDetMCD <- function(x, y, alpha = 0.5, ...) {
+lmDetMCD <- function(x, y, alpha = 0.75, ...) {
   n = length(x)
   data <- cbind(x, y)
   
