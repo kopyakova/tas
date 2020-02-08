@@ -273,26 +273,29 @@ covDetMCD <- function(x, alpha = 0.5, maxiter = 100, delta = 0.025) {
 #                   function covDetMCD())
 # any other output you want to return
 
-lmDetMCD <- function(x, y, alpha = 0.75, ...) {
-  n = length(x)
+lmDetMCD <- function(x, y, alpha = 0.5, ...) {
+  
+  n = dim(x)[1]
+  p = dim(x)[2]
   data <- cbind(x, y)
   
   #get MCD estimates
   #MCD = covMcd(data, alpha, nsamp = "deterministic")
   MCD = covDetMCD(data, alpha = alpha)
-  mu_x = MCD$center[1]
-  mu_y = MCD$center[2]
-  sigma_yy = MCD$cov[2,2]
-  sigma_xx = MCD$cov[1,1]
-  sigma_xy = MCD$cov[1,2]
+  mu_x = MCD$center[1:p]
+  mu_y = MCD$center[p+1]
+  sigma_yy = MCD$cov[p+1,p+1]
+  sigma_xx = MCD$cov[1:p,1:p]
+  sigma_xy = as.matrix(MCD$cov[1:p,p+1])
   
   #calculate coefficients
   beta = solve(sigma_xx) %*% sigma_xy
-  intercept = mu_y - mu_x*beta
-  coefficients = c(intercept, beta)
   
+  intercept = mu_y - mu_x %*% beta
+  coefficients = as.matrix(c(intercept, beta))
+  print(coefficients)
   #calculate predicted / fitted values and residuals
-  fitted.values = cbind(rep(1, n),x) %*% coefficients
+  fitted.values = as.matrix(cbind(rep(1, n), x)) %*% coefficients
   residuals = y - fitted.values
   
   return(list(coefficients, fitted.values, residuals, MCD))
